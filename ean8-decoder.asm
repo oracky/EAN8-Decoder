@@ -1,148 +1,160 @@
+# ------------------------------------------- 
+#	Autor: Micha³ Oracki 304099	      
+#	Grupa: 107			      
+#	Temat: Czytnik kodów EAN-8	      
+#	Data: 13.04.2020		      	     
+#	Obs³ugiwany format: BMP mono-chrome   
+# ------------------------------------------- 
+	
 .eqv	headeraddr 0
 .eqv    filesize   4
 .eqv	imgaddr    8
 .eqv	imgwidth   12
 .eqv    imgheight  16
-.eqv    rowsize    20
+
 
 	.data
 error_msg:	.asciiz "An error occured during decoding (Invalid EAN-8 code or bmp file opened with errors)"
 success_msg:	.asciiz "EAN-8 code: "
-code:	.space 256
+code:	.space 16
 imgdescriptor:	.word 0
 	.word 0
 	.word 0
 	.word 0
 	.word 0
 	.word 0
-	
+
+# kody Start/Stop i kod modu³u rozdzielaj¹cego	
 start_sign:	.word 5
 divider_sign:	.word 10
 stop_sign:	.word 5
 
-L_zero:		.word 13
-R_zero:		.word 114
-L_one:		.word 25
-R_one:		.word 102
-L_two:		.word 19
-R_two:		.word 108
-L_three:	.word 61
-R_three:	.word 66
-L_four:		.word 35
-R_four:		.word 92
-L_five:		.word 49
-R_five:		.word 78
-L_six:		.word 47
-R_six:		.word 80
-L_seven:	.word 59
-R_seven:	.word 68
-L_eight:	.word 55
-R_eight:	.word 72
-L_nine:		.word 11
-R_nine:		.word 116
+# kody cyfr w L i R code (od 0 do 9) 
+left_codes: 	.word 13, 25, 19, 61, 35, 49, 47, 59, 55, 11
+right_codes:	.word 114, 102, 108, 66, 92, 78, 80, 68, 72, 116
 
 img:	.space 	32768
-fname:	.asciiz "12345670_bajt.bmp"
+fname:	.asciiz "5px_99999919.bmp"
 
 	.text
 main:
-#	la $a0, imgdescriptor
-#	la $a1, fname
-#	jal read_bmp_file
-#	bltz $v0, main_exit
+	jal open_file
+	move $a0, $v0		# przeniesienie deskryptora pliku do $a0
+	la $a1, img		# adres nazwy pliku do odczytania
 	
-# odczyt pliku powinien byc osobna funkcja read_bmp_file
-# ktora mozna byloby uzyc w powyzszy sposob
-
-# $a0 - adres deskryptora obrazu
-# $a1 - adres nazwy pliku do odczytania
-# $v0 - informacja o bledze ($v0 < 0, wpp. sukces)
-
-	la $a0, fname
-	li $a1, 0
-	li $a2, 0
-	li $v0, 13
-	syscall
-	bltz $v0, error_exit
-	move $a0, $v0
-	la $a1, img
-	li $a2, 32768
-	li $v0, 14
-	syscall
-	move $t0, $v0
-	li $v0, 16
-	syscall
+	jal read_bmp
+	lw $a1, imgheight($a0)  # pobranie wysokosci pliku
+	li $a0, 0		# ustalenie koordynatu x
+	jal get_middle_pixel	# ustalenie srodkowego wiersza obrazku
+margin:
+	jal left_margin		# w $s1 ilosc pikseli marginesu
+	srl $t4, $s1, 3		# dzielenie calkowite przez 8 - przesuniecie adresu
+	and $t3, $s1, 7		# dzielenie z reszta przez 8 - przesuniecie bitu
 	
-	la $a0, imgdescriptor
-	sw $t0, filesize($a0)
-	sw $a1, headeraddr($a0)
-	lhu $t0, 10($a1) # przesuniêcie obrazu wzg poczatku pliku
-	addu $t1, $a1, $t0 # adres obrazu
-	sw $t1, imgaddr($a0) # imgdescriptor->imgaddr = $t1
-	lhu $t0, 18($a1)     # szerokosc obrazu w pikselach
-	sw $t0, imgwidth($a0) 
-	lhu $t0, 22($a1)     # wysokosc obrazu w pikselach
-	sw $t0, imgheight($a0) 
+bar:
+	la $a0, ($t0)		# zaladowanie adresu 1 bajtu
+	addu $a0, $a0, $t4 	# dodanie przesuniecia adresu
+	li $a1, 0		# numer bitu do odczytania
+	addu $a1, $a1, $t3	# dodanie przesuniecia bitu
+	li $s1, 0		# licznik bitow - liczy szerokosc paska
+bar_width:
+	jal get_bit
+	bne $v0, 0, prepare_for_start
+	addiu $a1, $a1, 1
+	addiu $s1, $s1, 1
+	beq $a1, 8, inc_byte
+	j bar_width
+inc_byte:
+	addiu $a0, $a0, 1	# zinkrementowanie adresu bajtu
+	li $a1, 0		# zerowanie numeru bitu do odczytania
+	j bar_width
 	
-	#od tego miejsca pisze sam
-	lw $t0, imgaddr($a0)	# Do $t0 wrzucam adres pierwszego pixela
-	la $t9, code		# zapisanie adresu kodu
-	
-	addiu $t0, $t0, 8908	# W $t0 mam adres pierwszego pixela w 132 wierszu
-	lbu $t2, ($t0)		# W najmniej znaj¹cym bajcie &t1 jest pierwszy pixel (8 pixeli) kodu
-	
-	addiu $t1, $t0, 3	# adres ostatnich osmiu pikseli (jednego paska)
-	jal set_compare_code
+prepare_for_start:
+	la $t9, code		# zapisanie adresu kodu wyjœciowego
+	la $a0, ($t0)		# ustawienie adresu na pcozatek wiersza
+	addu $a0, $a0, $t4	# dodanie przesuniecia adresu
+	li $a1, 0		# zerowanie numeru bitu do odczytania
+	addu $a1, $a1, $t3	# dodanie przesuniecia bitu
+	li $s2, 0		# licznik przeczytanych bitów
+	li $t2, 3		# szerokosc modulu startu
+start_loop:
+	jal get_bit
+	jal load_bit
+	beq $v1, 1, compare_s	# sprawdzenie, czy skonczono czytanie modulu ($v1 flaga konca)
+	jal balance_byte_offset
+	j start_loop
+compare_s:
+	lw $t8, start_sign
+	move $t4, $t2		# szerokosc modulu
 	jal compare_sign	
+
+prepare_for_left:
+	jal balance_byte_offset
+	li $s0, 0		# zerowanie rejestru kodow	
+	li $s2, 0		# zerowanie licznika przeczytanych bitow
+	li $t2, 28		# ilosc paskow w segmencie cyfr
+left_loop:
+	jal get_bit
+	jal load_bit
+	beq $v1, 1, decode_left	# sprawdzenie, czy skonczono czytanie modulu ($v1 flaga konca)
+	jal balance_byte_offset
+	j left_loop
+decode_left:
+	li $t4, 0		# wybranie opcji dekodowania kodów L
+	jal decode
 	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 5	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
+prepare_for_mid:
+	jal balance_byte_offset
+	li $s0, 0			
+	li $s2, 0
+	li $t2, 5
+mid_loop:
+	jal get_bit
+	jal load_bit
+	beq $v1, 1, compare_m	# sprawdzenie, czy skonczono czytanie modulu ($v1 flaga konca)
+	jal balance_byte_offset
+	j mid_loop
+compare_m:
+	lw $t8, divider_sign
+	move $t4, $t2		# szeroksoc modulu 
 	jal compare_sign
 	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
+prepare_for_right:
+	jal balance_byte_offset
+	li $s0, 0			
+	li $s2, 0
+	li $t2, 28
+right_loop:
+	jal get_bit
+	jal load_bit
+	beq $v1, 1, decode_right	# sprawdzenie, czy skonczono czytanie modulu ($v1 flaga konca)
+	jal balance_byte_offset
+	j right_loop
+decode_right:
+	li $t4, 1		# wybranie opcji dekodowania kodów R
+	jal decode
 	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 7	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
-	jal compare
-	
-	addiu $t1, $t1, 3	# zaladowanie ilosci paskow ( ilosc * bajty )
-	jal set_compare_code
+prepare_for_stop:
+	jal balance_byte_offset
+	li $a1, 0		# zerowanie numeru bitu do odczytania
+	li $s2, 0		# licznik przeczytanych bitów
+	li $t2, 3		# szerokosc modulu stop
+stop_loop:
+	jal get_bit
+	jal load_bit
+	beq $v1, 1, compare_st	# sprawdzenie, czy skonczono czytanie modulu ($v1 flaga konca)
+	jal balance_byte_offset
+	j stop_loop
+compare_st:
+	lw $t8, stop_sign
+	move $t4, $t2		# szerokosc modulu
 	jal compare_sign
-	
-	
-	
-succes_exit:
-	sb $zero, ($t9)		# dopisania null terminated 
+		
+success_exit:
 	la $a0, success_msg
 	li $v0, 4
 	syscall
-	la $a0, code
+	la $a0, code		# za³adowanie odczytanego kodu
 	li $v0, 4
 	syscall
 	j main_exit
@@ -153,145 +165,185 @@ error_exit:
 main_exit:	
 	li $v0, 10
 	syscall
-	
-	
-	
-set_compare_code:
-	# $t3 - rejestr z chwilowym kodem modu³u
-	li $t3, 0	# Zerowanie rejestru z kodem
-loop_start:
-	sll $t3, $t3, 1
-	beq $t2, 255, white	
-	addiu $t3, $t3, 1
-white:
-	addiu $t0, $t0, 1
-	lbu $t2, ($t0)
-	bne $t0, $t1, loop_start
-	jr $ra
-	
-compare:
-	addiu $t9, $t9, 1	# przejscie do nastepnego znaku wyjsciowego kodu
 
-	# sprawdzanie zgodnosci z tabela cyfr
-	la $t4, L_zero
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_zero
-	la $t4, R_zero
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_zero
-	la $t4, L_one
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_one
-	la $t4, R_one
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_one
-	la $t4, L_two
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_two
-	la $t4, R_two
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_two
-	la $t4, L_three
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_three
-	la $t4, R_three
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_three
-	la $t4, L_four
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_four
-	la $t4, R_four
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_four
-	la $t4, L_five
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_five
-	la $t4, R_five
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_five
-	la $t4, L_six
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_six
-	la $t4, R_six
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_six
-	la $t4, L_seven
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_seven
-	la $t4, R_seven
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_seven
-	la $t4, L_eight
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_eight
-	la $t4, R_eight
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_eight
-	la $t4, L_nine
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_nine
-	la $t4, R_nine
-	lw $t4, 0($t4) 
-	beq $t3, $t4, add_nine
+open_file:
+	la $a0, fname
+	li $a1, 0
+	li $a2, 0
+	li $v0, 13
+	syscall
+	bltz $v0, error_exit	# sprawdzenie poprawnosci otworzenia pliku
+	jr $ra
+
+read_bmp:
+	# $a0 - adres deskryptora obrazu
+	# $a1 - adres nazwy pliku do odczytania
+	# $v0 - informacja o bledze ($v0 < 0, wpp. sukces) 
+
+	li $a2, 32768
+	li $v0, 14
+	syscall
+	ble $v0, 0, error_exit	# jezeli blad podczas czytania, to przechodzi do etytkiety z wiadomoscia bledu
+	move $t0, $v0
+	li $v0, 16
+	syscall
 	
+	la $a0, imgdescriptor
+	sw $t0, filesize($a0)
+	sw $a1, headeraddr($a0)
+	lhu $t0, 10($a1) 	# przesuniêcie obrazu wzg poczatku pliku
+	addu $t1, $a1, $t0 	# adres obrazu
+	sw $t1, imgaddr($a0) 	# imgdescriptor->imgaddr = $t1
+	lhu $t0, 18($a1)     	# szerokosc obrazu w pikselach
+	sw $t0, imgwidth($a0) 
+	lhu $t0, 22($a1)     	# wysokosc obrazu w pikselach
+	sw $t0, imgheight($a0) 
 	
-	j error_exit
+	lw $a2, imgwidth($a0)
+	addiu $a2, $a2, 31
+	srl $a2, $a2, 5
+	sll $a2, $a2, 2		# obliczenie szeroksoci obrazu w bajtach
+
+	lw $t0, imgaddr($a0)	# W $t0 znajduje sie adres pierwszego piksela
 	
-add_zero:
-	li $t5, '0'
-	sb $t5, -1($t9)
 	jr $ra
-add_one:
-	li $t5, '1'
-	sb $t5, -1($t9)
+	
+
+get_middle_pixel:
+	# $a0 - wartosc koordynatu x
+	# $a1 - wysokosc obrazu
+	# $a2 - szeroksoc w bajtach
+	# $t0 - adres pierwszego piksela
+	
+	srl $t1, $a1, 1		# adres koordynatu y (polowa wysokosci)
+	
+	mul $t5, $t1, $a2  	# $t5= y*szerokosc_w_bajtach
+	move $t3, $a0		
+	sll $a0, $a0, 1
+	add $t3, $t3, $a0	# $t3= 3*x
+	add $t5, $t5, $t3	# $t5 = 3x + y * szerokosc_w_bajtach
+	add $t2, $t2, $t5	# adres piksela 
+	
 	jr $ra
-add_two:
-	li $t5, '2'
-	sb $t5, -1($t9)
+
+
+get_bit:
+	# W $a0 adres bajtu, w którym znajduje siê bit
+	# W $a1 numer bitu, który ma odczytaæ
+	# W $v0 funkcja zwraca wartoœæ bitu
+	li $a3, 1
+	li $s3, 7
+	subu $s3, $s3, $a1	# wylcizenie przesuniecia maski
+	sllv $a3, $a3, $s3	# przesuniecie maski
+	lbu $v0, ($a0)		
+	and $v0, $v0, $a3
+	srlv $v0, $v0, $s3	# przesuniecie bitow w prawo
 	jr $ra
-add_three:
-	li $t5, '3'
-	sb $t5, -1($t9)
+
+	
+balance_byte_offset:
+	# $s1 - szerokosc paska
+	# $a0 - adres aktualnego bajtu
+	# $a1 - numer bitu do odczytania
+	addu $a1, $a1, $s1
+	blt $a1, 8, return
+	addiu $a1, $a1,  -8
+	addiu $a0, $a0, 1
+return:
 	jr $ra
-add_four:
-	li $t5, '4'
-	sb $t5, -1($t9)
+
+
+load_bit:
+	# $v0 - wartosc bitu
+	# $s2 - licznik przeczytanych bitow
+	# $s0 - aktualna wartosc kodu
+	# $t2 - ilosc bitow do przeczytania
+	# $v1 - flaga konca sprawdzania (1 = true, 0 = false)
+	li $v1, 0
+	sll $s0, $s0, 1
+	addu $s0, $s0, $v0
+	addiu $s2, $s2, 1
+	beq $s2, $t2, flag
 	jr $ra
-add_five:
-	li $t5, '5'
-	sb $t5, -1($t9)
+flag:
+	li $v1, 1
 	jr $ra
-add_six:
-	li $t5, '6'
-	sb $t5, -1($t9)
-	jr $ra
-add_seven:
-	li $t5, '7'
-	sb $t5, -1($t9)
-	jr $ra
-add_eight:
-	li $t5, '8'
-	sb $t5, -1($t9)
-	jr $ra
-add_nine:
-	li $t5, '9'
-	sb $t5, -1($t9)
+
+
+decode:
+	# $t4 - Wybor dekodowania L lub R (dla L $t4 = 0)
+	li $t1, 127 		# maska o dlugosci 7 jedynek	
+	not $s0, $s0		# negacja znakow do odczytania kodow
+	li $t2, 21		# liczba miejsc do przesuniecia w prawo
+	sllv $t1, $t1, $t2
+decode_loop:
+	beq $t2, -7, return_decode
+	move $s4, $s0		
+	and $s4, $s4, $t1	
+	srlv $s4, $s4, $t2	# wybieranie modulu (7 bitów)
+	addiu $t2, $t2, -7	# zmniejszanie przesuniecia w prawo
+	li $t6, 0		# indeks
+	li $t7, 0		# licznik
+	beq $t4, 0, compare_l
+compare_r:
+	lw $t8, right_codes($t6)
+	beq $s4, $t8, to_str
+	addiu $t7, $t7, 1
+	addiu $t6, $t6, 4
+	bge $t7, 10, error_exit
+	j compare_r
+compare_l:
+	lw $t8, left_codes($t6)
+	beq $s4, $t8, to_str
+	addiu $t7, $t7, 1
+	addiu $t6, $t6, 4
+	bge $t7, 10, error_exit
+	j compare_l
+to_str:
+	# $t7 - licznik do przechodzenia po liscie cyfr
+	# $t9 - string z kodem
+	li $t3, '0'
+	addu $t3, $t3, $t7
+	sb $t3, ($t9)
+	addiu $t9, $t9, 1
+	srl $t1, $t1, 7
+	j decode_loop
+return_decode:
 	jr $ra
 	
 compare_sign:
-	
-	la $t4, start_sign
-	lw $t4, 0($t4)
-	beq $t3, $t4, continue
-	la $t4, stop_sign
-	lw $t4, 0($t4)
-	beq $t3, $t4, continue
-	la $t4, divider_sign
-	lw $t4, 0($t4)
-	beq $t3, $t4, continue
-	
-	j error_exit
-	
-continue:
+	# $t4 - dlugosc modulu znaku
+	# $t8 - wartosc prawidlowa znaku
+	li $t3, 32 		# szerokosc rejestru
+	subu $t3, $t3, $t4
+	move $s4, $s0
+	not $s4, $s4
+	sllv $s4, $s4, $t3	# wyciagniecie z rejestru bitow od prawej strony
+	srlv $s4, $s4, $t3
+	bne $s4, $t8, error_exit
 	jr $ra
 	
+left_margin:
+	la $a0, ($t0)		# zaladowanie adresu 1 bajtu
+	li $a1, 0		# numer bitu do odczytania
+	li $s1, 0		# licznik bitow - liczy szerokosc marginesu
+	
+left_margin_width:
+	li $a3, 1
+	li $s3, 7
+	subu $s3, $s3, $a1	# wylcizenie przesuniecia maski
+	sllv $a3, $a3, $s3	# przesuniecie maski
+	lbu $v0, ($a0)		
+	and $v0, $v0, $a3
+	srlv $v0, $v0, $s3
+	bne $v0, 1, end
+	addiu $a1, $a1, 1
+	addiu $s1, $s1, 1
+	beq $a1, 8, inc_byte_m
+	j left_margin_width
+inc_byte_m:
+	addiu $a0, $a0, 1	# zinkrementowanie adresu bajtu
+	li $a1, 0		# zerowanie numeru bitu do odczytania
+	j left_margin_width
+end:
+	jr $ra
