@@ -1,9 +1,9 @@
 # ------------------------------------------- 
-#	Autor: Micha³ Oracki 304099	      
-#	Grupa: 107			      
-#	Temat: Czytnik kodów EAN-8	      
+#	Autor: MichaÅ‚ Oracki 	      
+#			      
+#	Temat: Czytnik kodÃ³w EAN-8	      
 #	Data: 13.04.2020		      	     
-#	Obs³ugiwany format: BMP mono-chrome   
+#	ObsÅ‚ugiwany format: BMP mono-chrome   
 # ------------------------------------------- 
 	
 .eqv	headeraddr 0
@@ -24,7 +24,7 @@ imgdescriptor:	.word 0
 	.word 0
 	.word 0
 
-# kody Start/Stop i kod modu³u rozdzielaj¹cego	
+# kody Start/Stop i kod moduÅ‚u rozdzielajÄ…cego	
 start_sign:	.word 5
 divider_sign:	.word 10
 stop_sign:	.word 5
@@ -34,7 +34,7 @@ left_codes: 	.word 13, 25, 19, 61, 35, 49, 47, 59, 55, 11
 right_codes:	.word 114, 102, 108, 66, 92, 78, 80, 68, 72, 116
 
 img:	.space 	32768
-fname:	.asciiz "5px_99999919.bmp"
+fname:	.asciiz "file_name.bmp"
 
 	.text
 main:
@@ -70,12 +70,12 @@ inc_byte:
 	j bar_width
 	
 prepare_for_start:
-	la $t9, code		# zapisanie adresu kodu wyjœciowego
+	la $t9, code		# zapisanie adresu kodu wyjÅ›ciowego
 	la $a0, ($t0)		# ustawienie adresu na pcozatek wiersza
 	addu $a0, $a0, $t4	# dodanie przesuniecia adresu
 	li $a1, 0		# zerowanie numeru bitu do odczytania
 	addu $a1, $a1, $t3	# dodanie przesuniecia bitu
-	li $s2, 0		# licznik przeczytanych bitów
+	li $s2, 0		# licznik przeczytanych bitÃ³w
 	li $t2, 3		# szerokosc modulu startu
 start_loop:
 	jal get_bit
@@ -100,7 +100,7 @@ left_loop:
 	jal balance_byte_offset
 	j left_loop
 decode_left:
-	li $t4, 0		# wybranie opcji dekodowania kodów L
+	li $t4, 0		# wybranie opcji dekodowania kodÃ³w L
 	jal decode
 	
 prepare_for_mid:
@@ -131,13 +131,13 @@ right_loop:
 	jal balance_byte_offset
 	j right_loop
 decode_right:
-	li $t4, 1		# wybranie opcji dekodowania kodów R
+	li $t4, 1		# wybranie opcji dekodowania kodÃ³w R
 	jal decode
 	
 prepare_for_stop:
 	jal balance_byte_offset
 	li $a1, 0		# zerowanie numeru bitu do odczytania
-	li $s2, 0		# licznik przeczytanych bitów
+	li $s2, 0		# licznik przeczytanych bitÃ³w
 	li $t2, 3		# szerokosc modulu stop
 stop_loop:
 	jal get_bit
@@ -154,7 +154,7 @@ success_exit:
 	la $a0, success_msg
 	li $v0, 4
 	syscall
-	la $a0, code		# za³adowanie odczytanego kodu
+	la $a0, code		# zaÅ‚adowanie odczytanego kodu
 	li $v0, 4
 	syscall
 	j main_exit
@@ -191,7 +191,7 @@ read_bmp:
 	la $a0, imgdescriptor
 	sw $t0, filesize($a0)
 	sw $a1, headeraddr($a0)
-	lhu $t0, 10($a1) 	# przesuniêcie obrazu wzg poczatku pliku
+	lhu $t0, 10($a1) 	# przesuniÄ™cie obrazu wzg poczatku pliku
 	addu $t1, $a1, $t0 	# adres obrazu
 	sw $t1, imgaddr($a0) 	# imgdescriptor->imgaddr = $t1
 	lhu $t0, 18($a1)     	# szerokosc obrazu w pikselach
@@ -228,9 +228,9 @@ get_middle_pixel:
 
 
 get_bit:
-	# W $a0 adres bajtu, w którym znajduje siê bit
-	# W $a1 numer bitu, który ma odczytaæ
-	# W $v0 funkcja zwraca wartoœæ bitu
+	# W $a0 adres bajtu, w ktÃ³rym znajduje siÄ™ bit
+	# W $a1 numer bitu, ktÃ³ry ma odczytaÄ‡
+	# W $v0 funkcja zwraca wartoÅ›Ä‡ bitu
 	li $a3, 1
 	li $s3, 7
 	subu $s3, $s3, $a1	# wylcizenie przesuniecia maski
@@ -280,7 +280,7 @@ decode_loop:
 	beq $t2, -7, return_decode
 	move $s4, $s0		
 	and $s4, $s4, $t1	
-	srlv $s4, $s4, $t2	# wybieranie modulu (7 bitów)
+	srlv $s4, $s4, $t2	# wybieranie modulu (7 bitÃ³w)
 	addiu $t2, $t2, -7	# zmniejszanie przesuniecia w prawo
 	li $t6, 0		# indeks
 	li $t7, 0		# licznik
